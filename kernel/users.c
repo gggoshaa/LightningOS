@@ -4,12 +4,13 @@
 #include "kprintf.h"
 #include "string.h"
 #include "fs.h"
+#include "persist.h"
 #include "timer.h"
 #include "version.h"
 
-/* A small account database held entirely in RAM. There is no disk to persist
-   it to, so the setup wizard runs on every boot - the point is the mechanism,
-   not the storage. */
+/* A small account database. It is kept in RAM while running and written to
+   the data disk as part of the filesystem snapshot, so accounts survive a
+   reboot whenever a data disk is attached. */
 
 static user_t users[USER_MAX];
 static user_t *current;
@@ -188,11 +189,47 @@ int users_add(const char *name, const char *password, bool admin)
 
         fs_node_t *readme = fs_create(path, FS_FILE);
         fs_write(readme,
-                 "This home directory lives in RAM and is gone on reboot.\n"
-                 "You may write here and in /tmp; the rest of the tree is\n"
-                 "read-only unless you are root.\n"
-                 "Try: echo hello > note.txt, then cat note.txt\n", false);
+                 persist_available()
+                     ? "Changes here are written to the data disk after every\n"
+                       "command, so they survive a reboot. 'df' shows the disk.\n"
+                       "You may write here and in /tmp; the rest of the tree is\n"
+                       "read-only unless you are root.\n"
+                       "Try: echo hello > note.txt, then cat note.txt\n"
+                     : "No data disk is attached, so this directory lives in RAM\n"
+                       "and is gone on reboot.\n"
+                       "You may write here and in /tmp; the rest of the tree is\n"
+                       "read-only unless you are root.\n"
+                       "Try: echo hello > note.txt, then cat note.txt\n",
+                 false);
     }
+    sync_passwd_file();
+    return 0;
+}
+
+/* Restores a saved account as-is. Unlike users_add() it does not hash a
+   password, create a home directory or pick a uid - the snapshot already
+   decided all three. */
+int users_import(const char *name, const char *home,
+                 uint32_t uid, uint32_t gid, uint32_t pw_hash)
+{
+    if (!valid_name(name) || users_find(name))
+        return -1;
+
+    user_t *slot = free_slot();
+    if (!slot)
+        return -4;
+
+    memset(slot, 0, sizeof(*slot));
+    strncpy(slot->name, name, USER_NAME_MAX - 1);
+    strncpy(slot->home, home, USER_HOME_MAX - 1);
+    slot->uid = uid;
+    slot->gid = gid;
+    slot->pw_hash = pw_hash;
+    slot->active = true;
+
+    if (uid >= next_uid)
+        next_uid = uid + 1;
+
     sync_passwd_file();
     return 0;
 }
@@ -308,7 +345,10 @@ void users_setup_wizard(void)
     kprintf("  %s %s first boot setup\n", LOS_NAME, LOS_VERSION);
     vga_set_color(VGA_DARK_GREY, VGA_BLACK);
     kprintf("  ------------------------------------------------------------\n");
-    kprintf("  Accounts live in RAM, so this runs on every boot.\n\n");
+    if (persist_available())
+        kprintf("  Accounts are written to the data disk and kept across reboots.\n\n");
+    else
+        kprintf("  No data disk: accounts live in RAM and this runs every boot.\n\n");
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
 
     kprintf("  Step 1 of 2: the administrator account (root).\n\n");

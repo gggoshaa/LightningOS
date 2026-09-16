@@ -68,7 +68,9 @@ C_SOURCES = [
     "drivers/keyboard.c",
     "drivers/mouse.c",
     "drivers/rtc.c",
+    "drivers/ata.c",
     "fs/ramfs.c",
+    "fs/persist.c",
     "lib/string.c",
     "lib/printf.c",
 ]

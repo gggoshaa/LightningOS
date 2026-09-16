@@ -9,6 +9,8 @@
 #include "keyboard.h"
 #include "mouse.h"
 #include "fs.h"
+#include "persist.h"
+#include "ata.h"
 #include "users.h"
 #include "shell.h"
 #include "string.h"
@@ -66,18 +68,40 @@ void kmain(void)
         step("No PS/2 mouse (PageUp/PageDown still scroll)");
 
     fs_init();
-    step("In-memory root filesystem");
+    step("Root filesystem skeleton");
 
     users_init();
     step("Account database");
+
+    /* Probing ATA and restoring the snapshot both work by polling, so this
+       runs before interrupts are on. A restored snapshot replaces the
+       skeleton the two calls above just built. */
+    switch (persist_mount()) {
+    case PERSIST_LOADED:
+        step("Data disk mounted, previous session restored");
+        break;
+    case PERSIST_EMPTY:
+        step("Data disk found, no snapshot on it yet");
+        break;
+    case PERSIST_ERROR:
+        vga_set_color(VGA_YELLOW, VGA_BLACK);
+        step("Data disk unreadable, continuing in RAM only");
+        vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
+        break;
+    default:
+        step("No data disk, changes will not survive a reboot");
+        break;
+    }
 
     sti();
     step("Interrupts enabled");
 
     sleep_ms(500);
 
-    if (users_setup_needed())
+    if (users_setup_needed()) {
         users_setup_wizard();
+        persist_save();         /* keep the freshly created accounts */
+    }
 
     for (;;) {
         users_login();

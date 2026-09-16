@@ -38,6 +38,10 @@ int users_switch(const char *name, const char *password);
 
 bool users_check_password(const user_t *user, const char *password);
 
+/* Restores an account verbatim from a saved snapshot, hash included. */
+int users_import(const char *name, const char *home,
+                 uint32_t uid, uint32_t gid, uint32_t pw_hash);
+
 /* True when `path` is inside the current user's own writable area. */
 bool users_may_write(const char *abspath);
 

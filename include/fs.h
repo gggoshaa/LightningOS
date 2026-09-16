@@ -20,6 +20,7 @@ typedef struct fs_node {
 } fs_node_t;
 
 void       fs_init(void);
+void       fs_reset(void);   /* drop everything, leaving a bare root */
 fs_node_t *fs_root(void);
 fs_node_t *fs_cwd(void);
 void       fs_set_cwd(fs_node_t *dir);
@@ -28,6 +29,7 @@ fs_node_t *fs_resolve(const char *path);
 fs_node_t *fs_create(const char *path, fs_type_t type);
 int        fs_remove(const char *path);
 int        fs_write(fs_node_t *file, const char *text, bool append);
+int        fs_write_n(fs_node_t *file, const char *bytes, size_t len, bool append);
 void       fs_abspath(fs_node_t *node, char *out, size_t size);
 int        fs_count_nodes(void);
 

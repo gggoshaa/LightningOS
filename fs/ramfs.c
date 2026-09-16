@@ -10,6 +10,8 @@ static fs_node_t *root_node;
 static fs_node_t *current_dir;
 static int        node_count;
 
+static void free_subtree(fs_node_t *node);
+
 static fs_node_t *node_new(const char *name, fs_type_t type, fs_node_t *parent)
 {
     fs_node_t *node = (fs_node_t *)kcalloc(1, sizeof(fs_node_t));
@@ -108,6 +110,25 @@ static fs_node_t *walk(const char *path, bool stop_before_last, char *last)
             return NULL;
     }
     return node;
+}
+
+/* Frees the whole tree and starts again with an empty root. Used when a
+   snapshot is restored from disk over the built-in skeleton. */
+void fs_reset(void)
+{
+    if (root_node) {
+        fs_node_t *child = root_node->children;
+
+        while (child) {
+            fs_node_t *next = child->next;
+            free_subtree(child);
+            child = next;
+        }
+        root_node->children = NULL;
+    } else {
+        root_node = node_new("/", FS_DIR, NULL);
+    }
+    current_dir = root_node;
 }
 
 void fs_init(void)
@@ -213,10 +234,16 @@ int fs_remove(const char *path)
 
 int fs_write(fs_node_t *file, const char *text, bool append)
 {
-    if (!file || file->type != FS_FILE || !text)
+    if (!text)
+        return -1;
+    return fs_write_n(file, text, strlen(text), append);
+}
+
+int fs_write_n(fs_node_t *file, const char *bytes, size_t add, bool append)
+{
+    if (!file || file->type != FS_FILE || !bytes)
         return -1;
 
-    size_t add = strlen(text);
     size_t base = append ? file->size : 0;
     size_t needed = base + add + 1;
 
@@ -234,7 +261,7 @@ int fs_write(fs_node_t *file, const char *text, bool append)
         file->capacity = capacity;
     }
 
-    memcpy(file->data + base, text, add);
+    memcpy(file->data + base, bytes, add);
     file->size = base + add;
     file->data[file->size] = '\0';
     return 0;

@@ -10,6 +10,8 @@
 #include "io.h"
 #include "users.h"
 #include "mouse.h"
+#include "ata.h"
+#include "persist.h"
 #include "banner.h"
 #include "version.h"
 
@@ -189,6 +191,8 @@ static void cmd_help(void)
         { "free",      "heap and RAM usage" },
         { "meminfo",   "BIOS memory map" },
         { "lsdev",     "drivers and their state" },
+        { "df",        "disks and snapshot usage" },
+        { "sync",      "write the filesystem to disk now" },
         { "uptime",    "time since boot" },
         { "date",      "read the CMOS real time clock" },
         { "sleep ms",  "busy wait on the timer" },
@@ -212,6 +216,7 @@ static void cmd_help(void)
         { "passwd [u]","change a password" },
         { "useradd u", "create an account (root only)" },
         { "userdel u", "remove an account (root only)" },
+        { "mkfs",      "wipe the data disk (root only)" },
         { "logout",    "end the session, back to login" },
         { "reboot",    "restart the machine" },
         { "shutdown",  "power the machine off" },
@@ -418,6 +423,8 @@ static void cmd_echo(char *args)
     ksnprintf(buffer, sizeof(buffer), "%s\n", args);
     if (fs_write(file, buffer, append) != 0)
         print_error("echo", "write failed");
+    else
+        persist_mark_dirty();
 }
 
 static void cmd_free(void)
@@ -494,6 +501,55 @@ static void cmd_lsdev(void)
     kprintf("%-12s %-22s %d Hz\n", "timer", "8253 PIT, IRQ0", TIMER_HZ);
     kprintf("%-12s %-22s %s\n", "rtc", "MC146818 CMOS", "read only");
     kprintf("%-12s %-22s %s\n", "serial", "16550 COM1 38400", "kernel log");
+}
+
+static void cmd_sync(void)
+{
+    if (!persist_available()) {
+        print_error("sync", "no data disk attached, nothing to write to");
+        return;
+    }
+
+    int result = persist_save();
+    if (result == 0)
+        kprintf("filesystem and accounts written to disk (%u bytes)\n",
+                persist_bytes_used());
+    else if (result == -2)
+        print_error("sync", "snapshot is larger than the reserved area");
+    else
+        print_error("sync", "write failed");
+}
+
+static void cmd_df(void)
+{
+    const char *state;
+
+    switch (persist_state()) {
+    case PERSIST_LOADED: state = "mounted";                 break;
+    case PERSIST_EMPTY:  state = "empty, never written";    break;
+    case PERSIST_ERROR:  state = "unreadable";              break;
+    default:             state = "no data disk";            break;
+    }
+
+    kprintf("Boot disk    : %s\n",
+            ata_present(ATA_MASTER) ? ata_model(ATA_MASTER) : "none");
+    if (ata_present(ATA_MASTER))
+        kprintf("               %u sectors (%u MiB)\n",
+                ata_sector_count(ATA_MASTER),
+                ata_sector_count(ATA_MASTER) / 2048);
+
+    kprintf("Data disk    : %s\n",
+            ata_present(ATA_SLAVE) ? ata_model(ATA_SLAVE) : "none");
+    if (ata_present(ATA_SLAVE))
+        kprintf("               %u sectors (%u MiB)\n",
+                ata_sector_count(ATA_SLAVE),
+                ata_sector_count(ATA_SLAVE) / 2048);
+
+    kprintf("Snapshot     : %s\n", state);
+    kprintf("Used         : %u of %u bytes reserved\n",
+            persist_bytes_used(), persist_bytes_capacity());
+    kprintf("Saves        : %u\n", persist_saves());
+    kprintf("Unsaved      : %s\n", persist_is_dirty() ? "yes" : "no");
 }
 
 static void cmd_uptime(void)
@@ -617,6 +673,7 @@ static void cmd_useradd(int argc, char **argv)
     switch (users_add(argv[1], password, false)) {
     case 0:
         kprintf("created %s with home /home/%s\n", argv[1], argv[1]);
+        persist_mark_dirty();
         break;
     case -1:
         print_error("useradd", "invalid user name");
@@ -646,6 +703,7 @@ static void cmd_userdel(int argc, char **argv)
     switch (users_delete(argv[1])) {
     case 0:
         kprintf("removed %s (the home directory is left in place)\n", argv[1]);
+        persist_mark_dirty();
         break;
     case -1:
         print_error("userdel", "no such user");
@@ -691,9 +749,10 @@ static void cmd_passwd(int argc, char **argv)
     }
 
     if (read_new_password(name, password, sizeof(password))) {
-        if (users_set_password(name, password) == 0)
+        if (users_set_password(name, password) == 0) {
             kprintf("password updated for %s\n", name);
-        else
+            persist_mark_dirty();
+        } else
             print_error("passwd", "cannot change the password");
     }
     memset(password, 0, sizeof(password));
@@ -727,6 +786,10 @@ static void cmd_su(int argc, char **argv)
 
 static void cmd_reboot(void)
 {
+    if (persist_is_dirty()) {
+        kprintf("Writing unsaved changes to disk...\n");
+        persist_save();
+    }
     kprintf("Rebooting...\n");
     sleep_ms(400);
 
@@ -748,7 +811,13 @@ static void cmd_shutdown(void)
 {
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     kprintf("Stopping the shell session...\n");
-    kprintf("Syncing the in-memory filesystem (nothing to write)...\n");
+    if (persist_available()) {
+        kprintf("Writing the filesystem to disk...\n");
+        if (persist_save() != 0)
+            print_error("shutdown", "the snapshot could not be written");
+    } else {
+        kprintf("No data disk, nothing to write.\n");
+    }
     kprintf("Powering off.\n");
     sleep_ms(600);
 
@@ -808,22 +877,31 @@ static void execute(char *line)
     } else if (strcmp(name, "mkdir") == 0) {
         if (argc < 2)
             print_error("mkdir", "usage: mkdir <directory>");
-        else if (may_write("mkdir", argv[1]) && !fs_create(argv[1], FS_DIR))
-            print_error("mkdir", "cannot create directory");
+        else if (may_write("mkdir", argv[1])) {
+            if (fs_create(argv[1], FS_DIR))
+                persist_mark_dirty();
+            else
+                print_error("mkdir", "cannot create directory");
+        }
     } else if (strcmp(name, "touch") == 0) {
         if (argc < 2)
             print_error("touch", "usage: touch <file>");
-        else if (!fs_resolve(argv[1]) && may_write("touch", argv[1]) &&
-                 !fs_create(argv[1], FS_FILE))
-            print_error("touch", "cannot create file");
+        else if (!fs_resolve(argv[1]) && may_write("touch", argv[1])) {
+            if (fs_create(argv[1], FS_FILE))
+                persist_mark_dirty();
+            else
+                print_error("touch", "cannot create file");
+        }
     } else if (strcmp(name, "rm") == 0) {
         if (argc < 2) {
             print_error("rm", "usage: rm <path>");
         } else if (may_write("rm", argv[1])) {
             int result = fs_remove(argv[1]);
-            if (result == -2)
+            if (result == 0)
+                persist_mark_dirty();
+            else if (result == -2)
                 print_error("rm", "cannot remove the current directory");
-            else if (result != 0)
+            else
                 print_error("rm", "no such file or directory");
         }
     } else if (strcmp(name, "clear") == 0) {
@@ -834,6 +912,17 @@ static void execute(char *line)
         cmd_meminfo();
     } else if (strcmp(name, "lsdev") == 0) {
         cmd_lsdev();
+    } else if (strcmp(name, "sync") == 0) {
+        cmd_sync();
+    } else if (strcmp(name, "df") == 0) {
+        cmd_df();
+    } else if (strcmp(name, "mkfs") == 0) {
+        if (require_root("mkfs")) {
+            if (persist_format() == 0)
+                kprintf("data disk wiped, reboot for a fresh system\n");
+            else
+                print_error("mkfs", "no data disk attached");
+        }
     } else if (strcmp(name, "uptime") == 0) {
         cmd_uptime();
     } else if (strcmp(name, "date") == 0) {
@@ -913,6 +1002,11 @@ void shell_run(void)
             continue;
         console_history_push(line);
         execute(line);
+
+        /* Anything that changed the tree or the accounts is written out
+           straight away, so pulling the plug loses at most nothing. */
+        if (persist_flush() != 0)
+            print_error("sync", "could not write changes to disk");
     }
 
     users_logout();
