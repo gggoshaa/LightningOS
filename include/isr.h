@@ -14,6 +14,14 @@ typedef struct {
 
 typedef void (*isr_handler_t)(registers_t *regs);
 
+/* The dispatchers return the stack pointer to resume on. Normally that is
+   the frame they were given; the scheduler returns another task's stack. */
+uint32_t isr_handler(registers_t *regs);
+uint32_t irq_handler(registers_t *regs);
+uint32_t yield_handler(registers_t *regs);
+
+#define VECTOR_YIELD 0x30
+
 void idt_init(void);
 void irq_install_handler(int irq, isr_handler_t handler);
 void irq_uninstall_handler(int irq);

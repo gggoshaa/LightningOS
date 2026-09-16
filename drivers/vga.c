@@ -1,6 +1,7 @@
 #include "vga.h"
 #include "io.h"
 #include "string.h"
+#include "lock.h"
 
 #define VGA_MEMORY 0xB8000
 #define CRTC_INDEX 0x3D4
@@ -148,8 +149,13 @@ void vga_init(void)
     outb(CRTC_DATA, 15);
 }
 
+/* Output is a critical section: the cursor position, the shadow buffer and
+   the scrollback ring are all shared, and a task preempted halfway through
+   would leave them inconsistent. */
 void vga_putc(char c)
 {
+    uint32_t flags = irq_save();
+
     /* New output always brings the reader back to the live screen. */
     if (view_offset != 0) {
         view_offset = 0;
@@ -192,10 +198,11 @@ void vga_putc(char c)
     if (cursor_row >= VGA_HEIGHT) {
         scroll_up_one();
         repaint();
-        return;
+    } else {
+        move_hardware_cursor();
     }
 
-    move_hardware_cursor();
+    irq_restore(flags);
 }
 
 void vga_write(const char *s)

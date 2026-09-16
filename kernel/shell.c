@@ -12,6 +12,7 @@
 #include "mouse.h"
 #include "ata.h"
 #include "persist.h"
+#include "task.h"
 #include "banner.h"
 #include "version.h"
 
@@ -193,6 +194,9 @@ static void cmd_help(void)
         { "lsdev",     "drivers and their state" },
         { "df",        "disks and snapshot usage" },
         { "sync",      "write the filesystem to disk now" },
+        { "ps",        "running tasks and their CPU time" },
+        { "spawn k s", "background task: worker|ticker, for s seconds" },
+        { "kill pid",  "terminate a task" },
         { "uptime",    "time since boot" },
         { "date",      "read the CMOS real time clock" },
         { "sleep ms",  "busy wait on the timer" },
@@ -550,6 +554,119 @@ static void cmd_df(void)
             persist_bytes_used(), persist_bytes_capacity());
     kprintf("Saves        : %u\n", persist_saves());
     kprintf("Unsaved      : %s\n", persist_is_dirty() ? "yes" : "no");
+}
+
+/* ------------------------------------------------------------------------- */
+/* tasks                                                                     */
+/* ------------------------------------------------------------------------- */
+
+static void cmd_ps(void)
+{
+    /* 32-bit arithmetic throughout: a 64-bit division would need __udivdi3,
+       which a freestanding kernel does not link against. */
+    uint32_t total = (uint32_t)timer_ticks();
+
+    kprintf("%4s %-14s %-9s %8s %7s %8s\n",
+            "PID", "NAME", "STATE", "TICKS", "CPU%", "SWITCHES");
+
+    for (int i = 0; i < task_count(); i++) {
+        task_t *task = task_at(i);
+        if (!task)
+            continue;
+
+        uint32_t ticks = (uint32_t)task->cpu_ticks;
+        uint32_t percent = total ? (ticks / (total / 100 + 1)) : 0;
+
+        if (task == task_current())
+            vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
+        else if (task->state == TASK_SLEEPING)
+            vga_set_color(VGA_DARK_GREY, VGA_BLACK);
+
+        kprintf("%4u %-14s %-9s %8u %6u%% %8u\n",
+                task->id, task->name, task_state_name(task->state),
+                ticks, percent, (uint32_t)task->switches);
+        vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
+    }
+
+    vga_set_color(VGA_DARK_GREY, VGA_BLACK);
+    kprintf("%d tasks, %u ticks since boot, preemptive round robin at %d Hz\n",
+            task_count(), (uint32_t)total, TIMER_HZ);
+    vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
+}
+
+/* A deliberately CPU-bound task that burns for a fixed number of seconds.
+   Running a few of these and watching the shell stay responsive is the whole
+   point of the demonstration. Measuring in seconds rather than iterations
+   keeps the demo the same length whatever the host CPU does. */
+static void worker_task(void *arg)
+{
+    volatile uint32_t sink = 0;
+    uint32_t seconds = (uint32_t)(uintptr_t)arg;
+    uint64_t deadline = timer_ticks() + (uint64_t)seconds * TIMER_HZ;
+
+    while (timer_ticks() < deadline) {
+        for (uint32_t i = 0; i < 100000; i++)
+            sink += i;
+    }
+}
+
+/* A task that spends its life asleep, to show that a sleeping task costs the
+   scheduler nothing at all. */
+static void ticker_task(void *arg)
+{
+    uint32_t seconds = (uint32_t)(uintptr_t)arg;
+
+    for (uint32_t i = 0; i < seconds; i++)
+        task_sleep_ms(1000);
+}
+
+static void cmd_spawn(int argc, char **argv)
+{
+    const char *kind = (argc > 1) ? argv[1] : "worker";
+    int seconds = (argc > 2) ? parse_int(argv[2]) : 15;
+    task_entry_t entry;
+
+    if (seconds <= 0)
+        seconds = 15;
+
+    if (strcmp(kind, "worker") == 0) {
+        entry = worker_task;
+    } else if (strcmp(kind, "ticker") == 0) {
+        entry = ticker_task;
+    } else {
+        print_error("spawn", "usage: spawn <worker|ticker> [seconds]");
+        return;
+    }
+
+    task_t *task = task_spawn(kind, entry, (void *)(uintptr_t)seconds);
+    if (!task) {
+        print_error("spawn", "no free task slot or no memory for a stack");
+        return;
+    }
+    kprintf("started %s as pid %u, running for %d seconds\n",
+            kind, task->id, seconds);
+}
+
+static void cmd_kill(int argc, char **argv)
+{
+    if (argc < 2) {
+        print_error("kill", "usage: kill <pid>");
+        return;
+    }
+
+    uint32_t pid = (uint32_t)parse_int(argv[1]);
+
+    switch (task_kill(pid)) {
+    case 0:
+        kprintf("pid %u terminated\n", pid);
+        break;
+    case -2:
+        print_error("kill", "the idle task cannot be killed");
+        break;
+    default:
+        print_error("kill", "no such task");
+        break;
+    }
 }
 
 static void cmd_uptime(void)
@@ -916,6 +1033,14 @@ static void execute(char *line)
         cmd_sync();
     } else if (strcmp(name, "df") == 0) {
         cmd_df();
+    } else if (strcmp(name, "ps") == 0) {
+        cmd_ps();
+    } else if (strcmp(name, "spawn") == 0) {
+        cmd_spawn(argc, argv);
+    } else if (strcmp(name, "kill") == 0) {
+        cmd_kill(argc, argv);
+    } else if (strcmp(name, "yield") == 0) {
+        task_yield();
     } else if (strcmp(name, "mkfs") == 0) {
         if (require_root("mkfs")) {
             if (persist_format() == 0)

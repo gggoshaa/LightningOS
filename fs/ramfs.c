@@ -148,7 +148,7 @@ void fs_init(void)
     file = fs_create("/etc/motd", FS_FILE);
     fs_write(file,
              "Welcome to LightningOS.\n"
-             "This is a hobby kernel: 32-bit protected mode, no paging yet.\n"
+             "32-bit protected mode, preemptive tasks, ATA disk, no paging yet.\n"
              "Type 'help' to see what the shell can do.\n", false);
 
     file = fs_create("/etc/hostname", FS_FILE);

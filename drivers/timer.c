@@ -1,6 +1,7 @@
 #include "timer.h"
 #include "isr.h"
 #include "io.h"
+#include "task.h"
 
 #define PIT_CHANNEL0 0x40
 #define PIT_COMMAND  0x43
@@ -12,6 +13,7 @@ static void timer_callback(registers_t *regs)
 {
     (void)regs;
     ticks++;
+    task_account_tick();
 }
 
 void timer_init(void)
@@ -35,10 +37,16 @@ uint64_t timer_uptime_ms(void)
     return ticks * (1000 / TIMER_HZ);
 }
 
+/* Once the scheduler is up this hands the CPU to somebody else instead of
+   spinning on hlt. */
 void sleep_ms(uint32_t ms)
 {
-    uint64_t target = ticks + (ms / (1000 / TIMER_HZ));
+    if (task_running()) {
+        task_sleep_ms(ms);
+        return;
+    }
 
+    uint64_t target = ticks + (ms / (1000 / TIMER_HZ));
     while (ticks < target)
         __asm__ volatile("hlt");
 }

@@ -3,6 +3,7 @@
 #include "string.h"
 #include "kprintf.h"
 #include "panic.h"
+#include "task.h"
 
 #define IDT_ENTRIES 256
 
@@ -48,6 +49,7 @@ extern void irq6(void);  extern void irq7(void);  extern void irq8(void);
 extern void irq9(void);  extern void irq10(void); extern void irq11(void);
 extern void irq12(void); extern void irq13(void); extern void irq14(void);
 extern void irq15(void);
+extern void yield_entry(void);
 
 static const char *exception_names[32] = {
     "Divide by zero",
@@ -128,6 +130,9 @@ void idt_init(void)
     for (int i = 0; i < 48; i++)
         set_gate(i, (uint32_t)stubs[i], 0x08, 0x8E);   /* ring 0, 32-bit gate */
 
+    /* The yield gate. DPL 0 is enough while everything runs in ring 0. */
+    set_gate(VECTOR_YIELD, (uint32_t)yield_entry, 0x08, 0x8E);
+
     idt_flush(&idt_pointer);
 
     /* Unmask only the lines we actually service: timer, keyboard, and IRQ2
@@ -173,16 +178,17 @@ void irq_uninstall_handler(int irq)
         irq_handlers[irq] = NULL;
 }
 
-void isr_handler(registers_t *regs)
+uint32_t isr_handler(registers_t *regs)
 {
     const char *name = (regs->int_no < 32)
                            ? exception_names[regs->int_no]
                            : "Unknown interrupt";
 
     panic_regs(name, regs);
+    return (uint32_t)regs;              /* panic_regs never returns */
 }
 
-void irq_handler(registers_t *regs)
+uint32_t irq_handler(registers_t *regs)
 {
     int irq = (int)regs->int_no - 32;
 
@@ -192,4 +198,14 @@ void irq_handler(registers_t *regs)
 
     if (irq >= 0 && irq < 16 && irq_handlers[irq])
         irq_handlers[irq](regs);
+
+    /* Every hardware interrupt is a scheduling opportunity; the timer is
+       what makes that preemption rather than politeness. */
+    return task_schedule((uint32_t)regs);
+}
+
+/* Vector 0x30, raised by a task that wants to give up the CPU now. */
+uint32_t yield_handler(registers_t *regs)
+{
+    return task_schedule((uint32_t)regs);
 }

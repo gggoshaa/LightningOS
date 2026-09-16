@@ -2,6 +2,7 @@
 #include "string.h"
 #include "kprintf.h"
 #include "panic.h"
+#include "lock.h"
 
 /* The bootloader stashed the BIOS memory map here before leaving real mode. */
 #define E820_COUNT_ADDR 0x8000
@@ -115,12 +116,16 @@ static void split_block(block_t *block, size_t size)
     block->size = size;
 }
 
+/* The free list is shared by every task, so allocation runs with interrupts
+   masked. The critical section is a short walk over a handful of blocks. */
 void *kmalloc(size_t size)
 {
     if (size == 0)
         return NULL;
 
     size = (size + 7) & ~((size_t)7);       /* 8-byte alignment */
+
+    uint32_t flags = irq_save();
 
     for (block_t *block = heap_head; block; block = block->next) {
         if (!block->free || block->size < size)
@@ -129,8 +134,11 @@ void *kmalloc(size_t size)
         split_block(block, size);
         block->free = false;
         heap_used += block->size + sizeof(block_t);
+        irq_restore(flags);
         return (uint8_t *)block + sizeof(block_t);
     }
+
+    irq_restore(flags);
     return NULL;                            /* out of heap */
 }
 
@@ -168,12 +176,14 @@ void kfree(void *ptr)
 
     if (block->magic != BLOCK_MAGIC)
         panic("kfree() on a pointer that is not a heap block");
-    if (block->free)
-        return;                             /* double free - ignore */
 
-    block->free = true;
-    heap_used -= block->size + sizeof(block_t);
-    coalesce(block);
+    uint32_t flags = irq_save();
+    if (!block->free) {
+        block->free = true;
+        heap_used -= block->size + sizeof(block_t);
+        coalesce(block);
+    }
+    irq_restore(flags);
 }
 
 uint64_t mem_total_bytes(void) { return total_usable; }

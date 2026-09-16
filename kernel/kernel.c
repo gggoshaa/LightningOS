@@ -13,9 +13,22 @@
 #include "ata.h"
 #include "users.h"
 #include "shell.h"
+#include "task.h"
+#include "panic.h"
 #include "string.h"
 #include "io.h"
 #include "version.h"
+
+/* The login prompt and the shell, as a task of their own. */
+static void session_task(void *arg)
+{
+    (void)arg;
+
+    for (;;) {
+        users_login();
+        shell_run();
+    }
+}
 
 /* Linux-style "[ OK ] doing a thing" progress lines. */
 static void step(const char *what)
@@ -103,8 +116,16 @@ void kmain(void)
         persist_save();         /* keep the freshly created accounts */
     }
 
+    /* From here on this context is the idle task: it exists so the scheduler
+       always has something to run, and it reclaims the stacks of tasks that
+       have finished. Everything the user interacts with runs in the session
+       task spawned below. */
+    task_init();
+    if (!task_spawn("session", session_task, NULL))
+        panic("could not start the session task");
+
     for (;;) {
-        users_login();
-        shell_run();
+        task_reap();
+        __asm__ volatile("sti; hlt");
     }
 }

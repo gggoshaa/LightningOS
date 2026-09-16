@@ -58,6 +58,7 @@ C_SOURCES = [
     "kernel/idt.c",
     "kernel/mem.c",
     "kernel/panic.c",
+    "kernel/task.c",
     "kernel/console.c",
     "kernel/users.c",
     "kernel/shell.c",

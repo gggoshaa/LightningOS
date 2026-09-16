@@ -1,6 +1,7 @@
 #include "keyboard.h"
 #include "isr.h"
 #include "io.h"
+#include "task.h"
 
 #define KBD_DATA   0x60
 #define BUFFER_LEN 128
@@ -139,7 +140,12 @@ int keyboard_getchar(void)
 {
     int key;
 
-    while ((key = keyboard_poll()) == 0)
-        __asm__ volatile("sti; hlt");
+    while ((key = keyboard_poll()) == 0) {
+        if (task_running())
+            task_sleep_ms(10);  /* sleep rather than spin, so a waiting shell
+                                   costs the scheduler nothing */
+        else
+            __asm__ volatile("sti; hlt");
+    }
     return key;
 }
