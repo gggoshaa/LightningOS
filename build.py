@@ -26,6 +26,20 @@ KERNEL_LOAD_SECTORS = 256          # must match CHUNK_SECTORS*CHUNK_COUNT in boo
 IMAGE_SECTORS = 2880 * 4           # 5.7 MiB - comfortably larger than we read
 CD_LOAD_SEGMENT = 0x0FE0           # puts the kernel at 0x10000, see cdboot.asm
 
+
+def read_version():
+    """LOS_VERSION in include/version.h is the single source of truth."""
+    path = os.path.join(ROOT, "include", "version.h")
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if line.startswith("#define LOS_VERSION"):
+                return line.split('"')[1]
+    print("LOS_VERSION not found in include/version.h", file=sys.stderr)
+    sys.exit(1)
+
+
+VERSION = read_version()
+
 CFLAGS = [
     "-target", "i386-elf",
     "-m32",
@@ -239,6 +253,7 @@ def main():
     tool = tools()
 
     os.makedirs(OBJ, exist_ok=True)
+    print("LightningOS v%s" % VERSION)
     print("toolchain: %s (%s)" % (tool.kind, tool.clang))
 
     print("== bootloader ==")
@@ -315,7 +330,7 @@ def main():
     boot_load_sectors = (len(boot_image) + SECTOR - 1) // SECTOR
 
     readme = (
-        "LightningOS %s install medium.\r\n"
+        "LightningOS v%s install medium.\r\n"
         "\r\n"
         "Boot this disc to reach the installer. It can write the system onto\r\n"
         "a hard disk, or run it live without touching anything.\r\n"
@@ -323,8 +338,11 @@ def main():
         "Source: https://github.com/gggoshaa/LightningOS\r\n" % "2.0"
     ).encode("ascii")
 
-    iso = os.path.join(BUILD, "lightningos.iso")
-    info = makeiso.build(iso, "LIGHTNINGOS", boot_image,
+    # Named with the version so the file can be attached to a GitHub release
+    # exactly as it comes out of the build.
+    iso = os.path.join(BUILD, "lightningos-%s.iso" % VERSION)
+    volume_id = "LIGHTNINGOS_" + VERSION.replace(".", "_")
+    info = makeiso.build(iso, volume_id, boot_image,
                          [("README.TXT", readme)],
                          CD_LOAD_SEGMENT, boot_load_sectors)
 

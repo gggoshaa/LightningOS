@@ -123,7 +123,7 @@ static void header(void)
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     vga_clear();
 
-    ksnprintf(title, sizeof(title), "  %s %s installer", LOS_NAME, LOS_VERSION);
+    ksnprintf(title, sizeof(title), "  %s %s installer", LOS_NAME, LOS_RELEASE);
     size_t used = strlen(title);
     for (size_t i = used; i < VGA_WIDTH; i++)
         title[i] = ' ';

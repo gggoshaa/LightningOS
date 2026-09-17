@@ -1,6 +1,8 @@
 #include "fs.h"
 #include "mem.h"
 #include "string.h"
+#include "kprintf.h"
+#include "version.h"
 
 /* A tiny in-memory filesystem: every node is a heap allocation and directories
    keep their children in a singly linked list. Enough to give the shell a
@@ -153,6 +155,15 @@ void fs_init(void)
 
     file = fs_create("/etc/hostname", FS_FILE);
     fs_write(file, "lightning\n", false);
+
+    /* Written from the build constants, so it can never drift out of step
+       with what the shell reports. */
+    char line[160];
+    file = fs_create("/etc/version", FS_FILE);
+    ksnprintf(line, sizeof(line),
+              "%s %s\ncodename %s\narch %s\nbuilt %s\n",
+              LOS_NAME, LOS_RELEASE, LOS_CODENAME, LOS_ARCH, LOS_BUILD);
+    fs_write(file, line, false);
 
     /* /etc/passwd is generated from the account table once users exist. */
     fs_create("/etc/passwd", FS_FILE);

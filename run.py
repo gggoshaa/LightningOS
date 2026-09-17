@@ -20,6 +20,7 @@ rebuilding the kernel replaces disk 0 and leaves saved data alone.
 Prefers QEMU; falls back to VirtualBox, driven entirely from the command line.
 """
 
+import glob
 import os
 import shutil
 import subprocess
@@ -30,7 +31,13 @@ BUILD = os.path.join(ROOT, "build")
 
 BOOT_IMG = os.path.join(BUILD, "lightningos.img")
 DATA_IMG = os.path.join(BUILD, "data.img")
-ISO = os.path.join(BUILD, "lightningos.iso")
+def find_iso():
+    """build.py names the ISO after the version, so pick the newest one."""
+    candidates = sorted(glob.glob(os.path.join(BUILD, "lightningos-*.iso")),
+                        key=os.path.getmtime, reverse=True)
+    if candidates:
+        return candidates[0]
+    return os.path.join(BUILD, "lightningos.iso")
 TARGET_IMG = os.path.join(BUILD, "target.img")
 
 BOOT_VDI = os.path.join(BUILD, "lightningos.vdi")
@@ -130,7 +137,7 @@ def run_qemu(qemu, mode, extra):
         ensure_raw(TARGET_IMG, TARGET_MB)
         command = [
             qemu,
-            "-cdrom", ISO,
+            "-cdrom", find_iso(),
             "-drive", "file=%s,format=raw,if=ide,index=0,media=disk" % TARGET_IMG,
             "-boot", "d",
         ]
@@ -215,7 +222,7 @@ def run_virtualbox(vbox, mode, headless):
 
         create_vm(vbox, "dvd")
         attach(vbox, 0, 0, "hdd", TARGET_VDI)
-        attach(vbox, 1, 0, "dvddrive", ISO)
+        attach(vbox, 1, 0, "dvddrive", find_iso())
         print("Booting the LightningOS install medium...")
     else:
         # The boot disk is regenerated from the freshly built image each run.
@@ -271,7 +278,8 @@ def main():
     extra = [a for a in args
              if a not in ("--iso", "--installed", "--headless")]
 
-    wanted = {"iso": ISO, "installed": TARGET_IMG, "built": BOOT_IMG}[mode]
+    iso = find_iso()
+    wanted = {"iso": iso, "installed": TARGET_IMG, "built": BOOT_IMG}[mode]
     if mode == "installed" and find(["VBoxManage"], VBOX_DIRS) and             not find(["qemu-system-i386", "qemu-system-x86_64"], QEMU_DIRS):
         wanted = TARGET_VDI
     if not os.path.isfile(wanted):

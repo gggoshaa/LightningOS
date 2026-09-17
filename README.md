@@ -1,4 +1,4 @@
-# LightningOS 2.0 "Thunderbolt"
+# LightningOS v1.0.0.0 "Thunderbolt"
 
 Маленькая 32-битная операционная система для x86, написанная с нуля:
 загрузчик на ассемблере (NASM) + ядро на C. Работает на «голом железе»,
@@ -23,6 +23,34 @@
 | Оболочка | `lsh` — история команд, редактирование строки, ~35 встроенных команд |
 | Паника | Красный экран с дампом регистров и адресом page fault |
 | Установка | Загрузочный ISO (El Torito) с установщиком: запись системы на жёсткий диск или живой режим |
+
+## Версия
+
+Версия записана **в одном месте** — `LOS_VERSION` в `include/version.h`.
+Оттуда её берут и ядро, и `build.py`, поэтому для выпуска новой версии
+достаточно поменять эту строку.
+
+Версию видно в загрузочной строке, в баннере, в заголовке установщика, в
+мастере первичной настройки, в приглашении входа, в `uname -a`, в файле
+`/etc/version` и в команде `version`:
+
+```
+root@lightning:~# version
+LightningOS v1.0.0.0 "Thunderbolt"
+
+  Version      : 1.0.0.0
+  Codename     : Thunderbolt
+  Architecture : i386, 32-bit protected mode
+  Built        : 2026-09-17T19:25
+  Kernel image : 55360 bytes in 109 sectors
+  Booted from  : a hard disk
+  Source       : https://github.com/gggoshaa/LightningOS
+```
+
+ISO собирается сразу с версией в имени файла — `build/lightningos-1.0.0.0.iso`,
+его можно без переименования прикладывать к релизу на GitHub. Метка тома тоже
+содержит версию (`LIGHTNINGOS_1_0_0_0`), так что определить, какой образ перед
+вами, можно не загружая его.
 
 ## Установочный ISO
 
@@ -260,7 +288,7 @@ VBoxManage controlvm LightningOS poweroff
 ## Команды оболочки
 
 ```
-система:    help  uname -a  banner  clear  history  color  free
+система:    help  uname -a  version  banner  clear  history  color  free
             meminfo  lsdev  df  sync  uptime  date  sleep
 задачи:     ps  spawn  kill  yield
 файлы:      ls  tree  cd  pwd  cat  echo  mkdir  touch  rm

@@ -12,6 +12,7 @@
 #include "mouse.h"
 #include "ata.h"
 #include "persist.h"
+#include "install.h"
 #include "task.h"
 #include "banner.h"
 #include "version.h"
@@ -176,7 +177,7 @@ void shell_banner(void)
         kprintf("  %s\n", los_logo[i]);
     vga_set_color(VGA_DARK_GREY, VGA_BLACK);
     kprintf("  %s %s \"%s\" on %s\n\n",
-            LOS_NAME, LOS_VERSION, LOS_CODENAME, LOS_ARCH);
+            LOS_NAME, LOS_RELEASE, LOS_CODENAME, LOS_ARCH);
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
 }
 
@@ -185,6 +186,7 @@ static void cmd_help(void)
     static const struct { const char *name, *help; } general[] = {
         { "help",      "show this list" },
         { "uname -a",  "kernel name, version and build date" },
+        { "version",   "full version and build details" },
         { "banner",    "print the logo" },
         { "clear",     "clear the screen" },
         { "history",   "recently entered commands" },
@@ -700,6 +702,25 @@ static void cmd_uname(int argc, char **argv)
         kprintf("%s\n", LOS_NAME);
 }
 
+/* Everything a bug report should quote, in one place. */
+static void cmd_version(void)
+{
+    vga_set_color(VGA_YELLOW, VGA_BLACK);
+    kprintf("%s %s \"%s\"\n\n", LOS_NAME, LOS_RELEASE, LOS_CODENAME);
+    vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
+
+    kprintf("  Version      : %s\n", LOS_VERSION);
+    kprintf("  Codename     : %s\n", LOS_CODENAME);
+    kprintf("  Architecture : %s, 32-bit protected mode\n", LOS_ARCH);
+    kprintf("  Built        : %s\n", LOS_BUILD);
+    kprintf("  Kernel image : %u bytes in %u sectors\n",
+            install_image_bytes(), install_image_sectors());
+    kprintf("  Booted from  : %s\n",
+            install_booted_from_medium() ? "the install medium"
+                                         : "a hard disk");
+    kprintf("  Source       : %s\n", LOS_URL);
+}
+
 static void cmd_color(int argc, char **argv)
 {
     if (argc < 3) {
@@ -1096,6 +1117,8 @@ static void execute(char *line)
         cmd_date();
     } else if (strcmp(name, "uname") == 0) {
         cmd_uname(argc, argv);
+    } else if (strcmp(name, "version") == 0) {
+        cmd_version();
     } else if (strcmp(name, "whoami") == 0) {
         user_t *me = users_current();
         kprintf("%s\n", me ? me->name : "nobody");

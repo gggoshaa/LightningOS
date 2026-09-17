@@ -342,7 +342,7 @@ void users_setup_wizard(void)
 
     vga_clear();
     vga_set_color(VGA_LIGHT_CYAN, VGA_BLACK);
-    kprintf("  %s %s first boot setup\n", LOS_NAME, LOS_VERSION);
+    kprintf("  %s %s first boot setup\n", LOS_NAME, LOS_RELEASE);
     vga_set_color(VGA_DARK_GREY, VGA_BLACK);
     kprintf("  ------------------------------------------------------------\n");
     if (persist_available())
@@ -404,7 +404,7 @@ void users_login(void)
 
     for (;;) {
         vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
-        kprintf("\n%s %s (tty1)\n\n", LOS_NAME, LOS_VERSION);
+        kprintf("\n%s %s (tty1)\n\n", LOS_NAME, LOS_RELEASE);
         kprintf("lightning login: ");
 
         if (!console_read_line(name, sizeof(name), CONSOLE_ECHO_PLAIN, false, NULL))

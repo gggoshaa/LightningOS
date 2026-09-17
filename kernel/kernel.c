@@ -50,7 +50,7 @@ void kmain(void)
 
     vga_set_color(VGA_WHITE, VGA_BLACK);
     kprintf("%s %s \"%s\" booting on %s\n\n",
-            LOS_NAME, LOS_VERSION, LOS_CODENAME, LOS_ARCH);
+            LOS_NAME, LOS_RELEASE, LOS_CODENAME, LOS_ARCH);
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
 
     step("VGA text console 80x25 with 512 lines of scrollback");
