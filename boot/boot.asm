@@ -35,6 +35,10 @@ start:
 
     mov     [boot_drive], dl
 
+    ; Clear the marker the CD stage would have set, so a disk boot is never
+    ; mistaken for a boot off the install medium.
+    mov     dword [0x7000], 0
+
     mov     si, msg_load
     call    print
 

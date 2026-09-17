@@ -11,6 +11,7 @@
 #include "fs.h"
 #include "persist.h"
 #include "ata.h"
+#include "install.h"
 #include "users.h"
 #include "shell.h"
 #include "task.h"
@@ -64,6 +65,11 @@ void kmain(void)
     mem_init();
     step("Physical memory map and kernel heap");
 
+    /* Before anything has had a chance to modify .data, so that what the
+       installer writes out is the image as it came off the medium. */
+    install_capture_image();
+    step("Kernel image captured for the installer");
+
     timer_init();
     step("Programmable interval timer at 100 Hz");
 
@@ -110,6 +116,11 @@ void kmain(void)
     step("Interrupts enabled");
 
     sleep_ms(500);
+
+    /* Off the install medium the installer comes first. Choosing "try it
+       without installing" falls through into an ordinary live session. */
+    if (install_booted_from_medium())
+        install_run_menu();
 
     if (users_setup_needed()) {
         users_setup_wizard();

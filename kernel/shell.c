@@ -552,6 +552,7 @@ static void cmd_df(void)
                 ata_sector_count(ATA_SLAVE) / 2048);
 
     kprintf("Snapshot     : %s\n", state);
+    kprintf("Location     : %s\n", persist_where());
     kprintf("Used         : %u of %u bytes reserved\n",
             persist_bytes_used(), persist_bytes_capacity());
     kprintf("Saves        : %u\n", persist_saves());

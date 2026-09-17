@@ -36,4 +36,7 @@ uint32_t persist_saves(void);
 int persist_format(void);
 bool persist_sealed(void);
 
+/* Human readable description of where the snapshot lives. */
+const char *persist_where(void);
+
 #endif

@@ -23,7 +23,11 @@ SECTIONS
         *(.data*)
     }
 
+    /* End of the flat binary: everything past here is .bss, which is not
+       present on disk. The installer writes exactly this range out. */
     . = ALIGN(16);
+    __image_end = .;
+
     __bss_start = .;
     .bss :
     {

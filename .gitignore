@@ -3,4 +3,8 @@ build/
 *.elf
 *.bin
 *.img
+*.iso
 *.vdi
+kernel/bootsector.c
+__pycache__/
+*.pyc
