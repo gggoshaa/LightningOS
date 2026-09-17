@@ -155,8 +155,13 @@ def run_virtualbox(vbox, headless=False):
                     "--usb", "off",
                     "--graphicscontroller", "vboxvga",
                     "--firmware", "bios"])
+    # Host I/O caching is off on purpose. With it on, VirtualBox keeps guest
+    # writes in host memory, and killing the VM with `controlvm poweroff`
+    # throws them away - the guest believes the snapshot was written while the
+    # VDI on disk never received it.
     vbox_run(vbox, ["storagectl", VM_NAME, "--name", "IDE",
-                    "--add", "ide", "--controller", "PIIX4"])
+                    "--add", "ide", "--controller", "PIIX4",
+                    "--hostiocache", "off"])
     vbox_run(vbox, ["storageattach", VM_NAME, "--storagectl", "IDE",
                     "--port", "0", "--device", "0",
                     "--type", "hdd", "--medium", BOOT_VDI])

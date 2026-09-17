@@ -220,7 +220,7 @@ static void cmd_help(void)
         { "passwd [u]","change a password" },
         { "useradd u", "create an account (root only)" },
         { "userdel u", "remove an account (root only)" },
-        { "mkfs",      "wipe the data disk (root only)" },
+        { "mkfs",      "wipe the data disk and reboot (root only)" },
         { "logout",    "end the session, back to login" },
         { "reboot",    "restart the machine" },
         { "shutdown",  "power the machine off" },
@@ -520,6 +520,8 @@ static void cmd_sync(void)
                 persist_bytes_used());
     else if (result == -2)
         print_error("sync", "snapshot is larger than the reserved area");
+    else if (result == -5)
+        print_error("sync", "the disk was wiped by mkfs, reboot first");
     else
         print_error("sync", "write failed");
 }
@@ -901,13 +903,9 @@ static void cmd_su(int argc, char **argv)
 /* power                                                                     */
 /* ------------------------------------------------------------------------- */
 
-static void cmd_reboot(void)
+/* Restarts the machine without touching the disk. Never returns. */
+static void machine_reboot(void)
 {
-    if (persist_is_dirty()) {
-        kprintf("Writing unsaved changes to disk...\n");
-        persist_save();
-    }
-    kprintf("Rebooting...\n");
     sleep_ms(400);
 
     /* Pulse the CPU reset line through the 8042 keyboard controller. */
@@ -924,11 +922,59 @@ static void cmd_reboot(void)
         hlt();
 }
 
+static void cmd_reboot(void)
+{
+    if (persist_is_dirty()) {
+        kprintf("Writing unsaved changes to disk...\n");
+        persist_save();
+    }
+    kprintf("Rebooting...\n");
+    machine_reboot();
+}
+
+/* Wiping the disk leaves the old tree and accounts still live in RAM, so
+   staying in the session would only invite the next save to write them back.
+   The machine therefore restarts straight away, into first time setup. */
+static void cmd_mkfs(void)
+{
+    if (!require_root("mkfs"))
+        return;
+
+    if (!persist_available()) {
+        print_error("mkfs", "no data disk attached");
+        return;
+    }
+
+    vga_set_color(VGA_YELLOW, VGA_BLACK);
+    kprintf("This erases every file and account on the data disk.\n");
+    vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
+    kprintf("Type YES to confirm: ");
+
+    char answer[8];
+    if (!console_read_line(answer, sizeof(answer), CONSOLE_ECHO_PLAIN, false,
+                           NULL) || strcmp(answer, "YES") != 0) {
+        kprintf("mkfs cancelled, nothing was written.\n");
+        return;
+    }
+
+    if (persist_format() != 0) {
+        print_error("mkfs", "the data disk could not be wiped");
+        return;
+    }
+
+    vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
+    kprintf("Data disk wiped. Restarting into first time setup...\n");
+    vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
+    machine_reboot();
+}
+
 static void cmd_shutdown(void)
 {
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     kprintf("Stopping the shell session...\n");
-    if (persist_available()) {
+    if (persist_sealed()) {
+        kprintf("Data disk was wiped by mkfs, leaving it empty.\n");
+    } else if (persist_available()) {
         kprintf("Writing the filesystem to disk...\n");
         if (persist_save() != 0)
             print_error("shutdown", "the snapshot could not be written");
@@ -1042,12 +1088,7 @@ static void execute(char *line)
     } else if (strcmp(name, "yield") == 0) {
         task_yield();
     } else if (strcmp(name, "mkfs") == 0) {
-        if (require_root("mkfs")) {
-            if (persist_format() == 0)
-                kprintf("data disk wiped, reboot for a fresh system\n");
-            else
-                print_error("mkfs", "no data disk attached");
-        }
+        cmd_mkfs();
     } else if (strcmp(name, "uptime") == 0) {
         cmd_uptime();
     } else if (strcmp(name, "date") == 0) {

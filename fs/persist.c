@@ -44,6 +44,12 @@ static bool     dirty;
 static uint32_t bytes_used;
 static uint32_t save_count;
 
+/* Set by persist_format(). The tree and the accounts are still sitting in RAM
+   after a wipe, so without this the next save - on shutdown, or after any
+   command that marks the tree dirty - would write them straight back and undo
+   the format. The seal only clears on the next boot. */
+static bool     sealed;
+
 static uint32_t checksum(const uint8_t *data, uint32_t length)
 {
     uint32_t hash = 2166136261u;
@@ -127,6 +133,8 @@ static void write_tree(writer_t *w, fs_node_t *dir, uint32_t *count)
 
 int persist_save(void)
 {
+    if (sealed)
+        return -5;                          /* wiped, waiting for a reboot */
     if (state == PERSIST_NO_DISK)
         return 0;                           /* nothing to save to */
 
@@ -252,6 +260,7 @@ persist_state_t persist_mount(void)
 {
     super_t super;
 
+    sealed = false;
     ata_init();
 
     if (!ata_present(DATA_DRIVE)) {
@@ -374,8 +383,11 @@ int persist_format(void)
     bytes_used = 0;
     save_count = 0;
     dirty = false;
+    sealed = true;          /* nothing may write again before the reboot */
     return 0;
 }
+
+bool persist_sealed(void) { return sealed; }
 
 void persist_mark_dirty(void) { dirty = true; }
 bool persist_is_dirty(void)   { return dirty; }

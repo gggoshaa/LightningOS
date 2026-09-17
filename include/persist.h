@@ -29,7 +29,11 @@ uint32_t persist_bytes_used(void);
 uint32_t persist_bytes_capacity(void);
 uint32_t persist_saves(void);
 
-/* Wipes the on-disk snapshot so the next boot starts from a fresh system. */
+/* Wipes the on-disk snapshot so the next boot starts from a fresh system.
+   Afterwards the layer is sealed: persist_save() refuses to write until the
+   machine reboots, because the tree still in RAM would otherwise be written
+   straight back and undo the wipe. */
 int persist_format(void);
+bool persist_sealed(void);
 
 #endif
